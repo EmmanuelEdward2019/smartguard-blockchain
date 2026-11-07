@@ -16,7 +16,7 @@ Miva Open University Abuja · Department of Software Engineering
 contracts/   Solidity contracts, Hardhat tests, deployment scripts   [built]
 web/         Next.js presentation layer and access control           [built]
 ml/          Experiment pipeline: data, training, evaluation         [built]
-api/         FastAPI service and oracle bridge                       [service built, bridge pending]
+api/         FastAPI service and oracle bridge                     [built]
 docs/        Decision log and the evidence the report cites
 ```
 
@@ -26,7 +26,7 @@ docs/        Decision log and the evidence the report cites
 | ----- | -------------- | ------ |
 | Presentation | React 19 · Next.js App Router | Built |
 | Application & intelligence | FastAPI · scikit-learn · PostgreSQL | Built |
-| Oracle / integration | Web3.py bridge · event listener | Sprint 4 — next |
+| Oracle / integration | Web3.py bridge · event listener | Built |
 | Blockchain | Solidity 0.8.20 · Ethereum Sepolia | Deployed and verified |
 
 The contracts are live on Sepolia, verified, and deployed from a clean tree so
