@@ -12,7 +12,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from .models import AuditLayer, EscrowState, Outcome, Role
+from .models import ChainStatus, AuditLayer, EscrowState, Outcome, Role
 
 
 class Strict(BaseModel):
@@ -141,6 +141,18 @@ class EscrowOut(BaseModel):
     seller: PartyOut
     arbitrator: PartyOut
     prediction: PredictionOut | None
+
+    # --- what the chain says ------------------------------------------
+    # Carried so the interface can distinguish an escrow the contract holds
+    # from one only this database believes in. Without it a PENDING record and
+    # a CONFIRMED one look identical to a reader.
+    chainStatus: ChainStatus = Field(validation_alias="chain_status")
+    chainAmountWei: int | None = Field(default=None, validation_alias="chain_amount_wei")
+    scoreTxHash: str | None = Field(default=None, validation_alias="score_tx_hash")
+    depositTxHash: str | None = Field(default=None, validation_alias="deposit_tx_hash")
+    settlementTxHash: str | None = Field(default=None, validation_alias="settlement_tx_hash")
+    chainBlock: int | None = Field(default=None, validation_alias="chain_block")
+    chainError: str | None = Field(default=None, validation_alias="chain_error")
 
     # What this principal may do next. Computed per request, so the interface
     # never has to reimplement the policy to decide which controls to render.

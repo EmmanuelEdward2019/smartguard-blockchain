@@ -68,6 +68,22 @@ class Outcome(str, enum.Enum):
     TIMEOUT_REFUND = "timeout_refund"
 
 
+class ChainStatus(str, enum.Enum):
+    """How far an escrow has got with the chain.
+
+    Kept separate from EscrowState because the two answer different questions.
+    EscrowState is what the contract says the escrow *is*; ChainStatus is
+    whether this record has managed to talk to the contract at all. An escrow
+    can be INITIATED in the database and FAILED on chain, and conflating them
+    would hide exactly that case.
+    """
+
+    DISABLED = "disabled"     # the chain layer is switched off
+    PENDING = "pending"       # submitted, not yet confirmed
+    CONFIRMED = "confirmed"   # on chain, receipt retained
+    FAILED = "failed"         # submission or confirmation failed; see chain_error
+
+
 class AuditLayer(str, enum.Enum):
     PRESENTATION = "presentation"
     APPLICATION = "application"
@@ -150,6 +166,31 @@ class Transaction(Base):
     # asserts the type rather than the behaviour, because SQLite cannot
     # reproduce the overflow.
     nonce: Mapped[int] = mapped_column(BigInteger)
+
+    # --- chain record -----------------------------------------------
+    # What actually happened on Sepolia, as opposed to what this row claims.
+    # Nullable throughout: the service runs with the chain switched off, and a
+    # record written in that mode must not pretend to carry receipts.
+    chain_status: Mapped[ChainStatus] = mapped_column(
+        Enum(ChainStatus), default=ChainStatus.DISABLED, index=True,
+    )
+
+    # The value actually deposited, which is chain_demo_amount_eth and not
+    # amount_eth. Stored so the two are never confused: amount_eth is the
+    # notional figure the interface shows, this is what the contract holds.
+    chain_amount_wei: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    score_tx_hash: Mapped[str | None] = mapped_column(String(66), nullable=True)
+    deposit_tx_hash: Mapped[str | None] = mapped_column(String(66), nullable=True)
+    settlement_tx_hash: Mapped[str | None] = mapped_column(String(66), nullable=True)
+
+    # The block the deposit landed in. The event listener resumes from the
+    # lowest such block rather than re-reading the chain from genesis.
+    chain_block: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    # Why the chain write failed, kept rather than swallowed: a silent failure
+    # here is a record that looks settled and is not.
+    chain_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     delivery_confirmed_at: Mapped[datetime | None] = mapped_column(

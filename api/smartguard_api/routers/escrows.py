@@ -17,7 +17,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Callable
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -34,7 +34,9 @@ from ..schemas import (
 )
 from ..security import CurrentUser, require
 from ..settings_store import current as current_settings
-from .. import audit, policy
+from .. import audit, chain_tasks, policy
+from ..chain import get_chain
+from ..models import ChainStatus
 
 router = APIRouter(prefix="/escrows", tags=["escrows"])
 
@@ -169,6 +171,7 @@ def _insert_with_reference(db: Session, build: Callable[[str], Transaction]) -> 
 )
 def create_escrow(
     payload: CreateEscrowRequest,
+    background: BackgroundTasks,
     request: Request,
     user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
@@ -243,10 +246,20 @@ def create_escrow(
     now = datetime.now(timezone.utc)
     nonce = secrets.randbits(48)
 
+    # Is the chain layer going to pick this up? The real identifier and nonce
+    # come back from the oracle write, so until that lands the row carries a
+    # placeholder and says so, rather than showing an identifier no contract
+    # would recognise.
+    chain = get_chain(settings)
+    chain_status = (
+        ChainStatus.PENDING if chain.available else ChainStatus.DISABLED
+    )
+
     tx = _insert_with_reference(db, lambda reference: Transaction(
-        # Placeholder until the oracle bridge computes the keccak256 identifier
-        # from the contract (Sprint 4). Recorded as such rather than left blank.
+        # Replaced by the keccak256 identifier the contract derives, once the
+        # oracle write confirms. Until then it is marked as provisional.
         escrow_id=f"pending:{nonce}",
+        chain_status=chain_status,
         reference=reference,
         buyer_id=user.id,
         seller_id=seller.id,
@@ -290,13 +303,23 @@ def create_escrow(
         db, layer=AuditLayer.APPLICATION, event_type="risk.gate.pass",
         summary=(
             f"Risk gate passed: {assessment.risk_score:.4f} ≤ {threshold:.2f}. "
-            "Awaiting oracle write and on-chain deposit."
+            + ("Awaiting oracle write and on-chain deposit."
+               if chain_status is ChainStatus.PENDING
+               else "The chain layer is switched off; no on-chain record follows.")
         ),
         transaction_id=tx.id, actor=user,
     )
 
     db.commit()
     db.refresh(tx)
+
+    # Off the request path on purpose: the oracle write and the deposit are two
+    # Sepolia transactions, about eleven seconds each, and a twenty-second
+    # response is treated as a fault by browsers and proxies alike. The row is
+    # returned as PENDING and the interface watches it settle.
+    if chain_status is ChainStatus.PENDING:
+        background.add_task(chain_tasks.submit_escrow, tx.id, assessment.risk_score)
+
     return _serialise(tx, user, config)
 
 
@@ -333,6 +356,7 @@ def get_escrow(
 @router.post("/{reference}/confirm-delivery", response_model=EscrowOut)
 def confirm_delivery(
     reference: str,
+    background: BackgroundTasks,
     user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
@@ -359,12 +383,17 @@ def confirm_delivery(
     )
     db.commit()
     db.refresh(tx)
+    # Queued, not awaited: the contract call takes about eleven seconds on
+    # Sepolia. The database has already recorded the transition, and the
+    # event listener reconciles the two with the chain as the authority.
+    background.add_task(chain_tasks.submit_action, tx.id, "confirmDelivery")
     return _serialise(tx, user, config)
 
 
 @router.post("/{reference}/withdraw", response_model=EscrowOut)
 def withdraw(
     reference: str,
+    background: BackgroundTasks,
     user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
@@ -395,6 +424,10 @@ def withdraw(
     )
     db.commit()
     db.refresh(tx)
+    # Queued, not awaited: the contract call takes about eleven seconds on
+    # Sepolia. The database has already recorded the transition, and the
+    # event listener reconciles the two with the chain as the authority.
+    background.add_task(chain_tasks.submit_action, tx.id, "releaseFunds")
     return _serialise(tx, user, config)
 
 
@@ -403,6 +436,7 @@ def withdraw(
 @router.post("/{reference}/dispute", response_model=DisputeOut, status_code=201)
 def raise_dispute(
     reference: str,
+    background: BackgroundTasks,
     payload: RaiseDisputeRequest,
     user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
@@ -441,6 +475,10 @@ def raise_dispute(
     )
     db.commit()
     db.refresh(dispute)
+    # Queued, not awaited: the contract call takes about eleven seconds on
+    # Sepolia. The database has already recorded the transition, and the
+    # event listener reconciles the two with the chain as the authority.
+    background.add_task(chain_tasks.submit_action, tx.id, "initiateDispute")
     return dispute
 
 
@@ -449,6 +487,7 @@ def raise_dispute(
 @router.post("/{reference}/resolve", response_model=EscrowOut)
 def resolve_dispute(
     reference: str,
+    background: BackgroundTasks,
     payload: ResolveDisputeRequest,
     user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
@@ -497,6 +536,10 @@ def resolve_dispute(
     )
     db.commit()
     db.refresh(tx)
+    # Queued, not awaited: the contract call takes about eleven seconds on
+    # Sepolia. The database has already recorded the transition, and the
+    # event listener reconciles the two with the chain as the authority.
+    background.add_task(chain_tasks.submit_action, tx.id, "resolveDispute", release_to_seller=payload.releaseToSeller)
     return _serialise(tx, user, config)
 
 
@@ -505,6 +548,7 @@ def resolve_dispute(
 @router.post("/{reference}/refund", response_model=EscrowOut)
 def claim_refund(
     reference: str,
+    background: BackgroundTasks,
     user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
@@ -535,4 +579,8 @@ def claim_refund(
     )
     db.commit()
     db.refresh(tx)
+    # Queued, not awaited: the contract call takes about eleven seconds on
+    # Sepolia. The database has already recorded the transition, and the
+    # event listener reconciles the two with the chain as the authority.
+    background.add_task(chain_tasks.submit_action, tx.id, "claimRefund")
     return _serialise(tx, user, config)

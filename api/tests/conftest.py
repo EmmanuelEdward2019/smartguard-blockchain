@@ -18,6 +18,14 @@ import pytest
 os.environ.setdefault("ENVIRONMENT", "test")
 os.environ.setdefault("SESSION_SECRET", "test-secret-not-for-production")
 
+# The chain layer is switched off for the suite, overriding .env rather than
+# deferring to it. Left on, every test run would reach Sepolia: slow, dependent
+# on a network and an RPC quota, and liable to spend testnet ether. The chain
+# paths are exercised against the real network by
+# tests/test_chain_integration.py, which is opt-in.
+os.environ["CHAIN_ENABLED"] = "false"
+os.environ["CHAIN_SYNC_ENABLED"] = "false"
+
 _db_fd, _db_path = tempfile.mkstemp(suffix=".sqlite")
 os.close(_db_fd)
 os.environ["DATABASE_URL"] = f"sqlite:///{_db_path}"

@@ -14,6 +14,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
+from . import chain_sync
+from .chain import get_chain
 from .config import get_settings
 from .inference import RiskScorer
 from .routers import admin, auth, escrows, health, risk
@@ -47,7 +49,26 @@ async def lifespan(app: FastAPI):
             "starting without a risk model; escrow initiation will fail closed",
         )
 
-    yield
+    # The oracle and integration layer. Reported at startup either way: a
+    # service that silently runs without a chain looks identical to one whose
+    # RPC endpoint is misconfigured, and the difference matters.
+    chain = get_chain(settings)
+    status = chain.status()
+    if chain.available:
+        logger.info(
+            "chain layer ready: chain %s at block %s, escrow %s, operator %s",
+            status.chain_id, status.block_number,
+            status.escrow_contract, status.operator,
+        )
+        if chain_sync.start_listener(settings):
+            logger.info("chain listener polling every %ss", settings.chain_poll_seconds)
+    else:
+        logger.warning("chain layer unavailable: %s", status.reason)
+
+    try:
+        yield
+    finally:
+        chain_sync.stop_listener()
 
 
 app = FastAPI(
