@@ -15,7 +15,6 @@ import { useSession } from './auth/context';
 import { requestRiskScore } from './api';
 import { CONTRACTS, SELLER_PROFILES, SEED_NOW, USERS, USER_BY_ID } from './seed';
 import * as core from './store-core';
-import { isBackendConfigured } from './api';
 import type { AuditEntry, Dispute, SystemSettings, Transaction } from './types';
 
 export type NewEscrowInput = Omit<core.NewEscrowInput, 'buyerId'>;
@@ -41,6 +40,8 @@ interface StoreValue {
   initiateDispute: (txId: string, raisedByRole: 'buyer' | 'seller', reason: string) => Promise<void>;
   resolveDispute: (txId: string, forSeller: boolean, note: string) => Promise<void>;
   claimRefund: (txId: string) => Promise<void>;
+  /** Fetches one escrow's event trail from the API, if one is connected. */
+  loadEvents: (reference: string) => Promise<void>;
   updateSettings: (patch: Partial<SystemSettings>) => void;
   resetDemo: () => void;
 }
@@ -97,7 +98,9 @@ export function useStore(): StoreValue {
       audit: state.audit,
       settings: state.settings,
       ready: state.hydrated,
-      backendConnected: isBackendConfigured(),
+      // Whether the API actually answered, not whether a build-time
+      // variable was set. See the note on apiMode in store-core.
+      backendConnected: state.apiConnected,
       users: USERS,
       contracts: CONTRACTS,
       transactionById,
@@ -109,6 +112,7 @@ export function useStore(): StoreValue {
       initiateDispute,
       resolveDispute,
       claimRefund,
+      loadEvents: core.loadEvents,
       updateSettings,
       resetDemo: core.resetStore,
     }),

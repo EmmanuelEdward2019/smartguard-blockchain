@@ -68,11 +68,22 @@ def _record_failure(db: Session, tx: Transaction, error: Exception, step: str) -
 
 
 def _receipt_detail(receipt: ChainReceipt) -> dict[str, Any]:
+    """The explorer link, for the detail payload.
+
+    The hash, gas and block go into AuditLog's own columns rather than here —
+    see `_receipt_columns`. They were previously written only into this JSON,
+    which left the interface summing a `gas_used` column that was always null
+    and reporting "0 gas across 0 calls" on escrows that had consumed plenty.
+    """
+    return {"explorer": receipt.explorer}
+
+
+def _receipt_columns(receipt: ChainReceipt) -> dict[str, Any]:
+    """The receipt fields audit.record stores as columns, so they are queryable."""
     return {
-        "txHash": receipt.tx_hash,
-        "blockNumber": receipt.block_number,
-        "gasUsed": receipt.gas_used,
-        "explorer": receipt.explorer,
+        "tx_hash": receipt.tx_hash,
+        "gas_used": receipt.gas_used,
+        "block_number": receipt.block_number,
     }
 
 
@@ -134,6 +145,7 @@ def submit_escrow(transaction_id: str, risk_score: float,
                 f"RiskOracleContract for {tx.reference} (nonce {nonce})."
             ),
             transaction_id=tx.id, detail=_receipt_detail(score_receipt),
+            **_receipt_columns(score_receipt),
         )
         db.commit()
 
@@ -156,6 +168,7 @@ def submit_escrow(transaction_id: str, risk_score: float,
                 f"for {tx.reference}. Risk gate passed. State → INITIATED."
             ),
             transaction_id=tx.id,
+            **_receipt_columns(deposit_receipt),
             detail={
                 **_receipt_detail(deposit_receipt),
                 "escrowId": tx.escrow_id,
@@ -232,6 +245,7 @@ def submit_action(transaction_id: str, action: str,
             db, layer=AuditLayer.BLOCKCHAIN, event_type=f"contract.{action}",
             summary=f"{action} confirmed on chain for {tx.reference}.",
             transaction_id=tx.id, detail=_receipt_detail(receipt),
+            **_receipt_columns(receipt),
         )
         db.commit()
         logger.info("chain %s confirmed for %s (%s)", action, tx.reference, receipt.tx_hash)

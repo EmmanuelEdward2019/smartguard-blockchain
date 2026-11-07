@@ -1,5 +1,7 @@
 'use client';
 
+import { useEffect } from 'react';
+
 import Link from 'next/link';
 import { ArrowLeft, Boxes, Fingerprint, Fuel, Gavel, ShieldX, Timer } from 'lucide-react';
 import { Address, Badge, Card, Empty, KeyValue, Notice, ui } from '@/components/ui';
@@ -19,8 +21,16 @@ export function EscrowDetail({ id }: { id: string }) {
   const { principal } = useSession();
   const {
     transactionById, disputeForTransaction, auditForTransaction, settings, contracts, ready,
+    loadEvents,
   } = useStore();
   const now = useNow();
+
+  // The list endpoint omits event trails, so the one for this escrow is
+  // fetched when the page opens. A failure is not surfaced: the rest of the
+  // record is still worth showing, and the trail renders empty.
+  useEffect(() => {
+    void loadEvents(id).catch(() => {});
+  }, [id, loadEvents, ready]);
 
   const tx = transactionById(id);
 
@@ -262,10 +272,21 @@ export function EscrowDetail({ id }: { id: string }) {
                 ['Chain ID', <span key="d" className="mono">{contracts.chainId}</span>],
               ]} />
 
-              <Notice tone="warn" icon={<Boxes size={15} />}>
-                Contract addresses and transaction hashes are placeholders until a genuine Sepolia
-                deployment record replaces them. They must not be cited as verification.
-              </Notice>
+              {tx.chainStatus === 'confirmed' ? (
+                <KeyValue rows={[
+                  ['Escrow id', <span key="e" className="mono">{shortHash(tx.escrowIdHash)}</span>],
+                  ['Oracle write', <TxLink key="f" hash={tx.scoreTxHash} />],
+                  ['Deposit', <TxLink key="g" hash={tx.depositTxHash} />],
+                  ...(tx.settlementTxHash
+                    ? [['Settlement', <TxLink key="h" hash={tx.settlementTxHash} />] as [React.ReactNode, React.ReactNode]]
+                    : []),
+                ]} />
+              ) : (
+                <Notice tone="warn" icon={<Boxes size={15} />}>
+                  This escrow has no on-chain record. Its identifier and any hashes shown are
+                  local to this demonstration and must not be cited as verification.
+                </Notice>
+              )}
             </div>
           </Card>
 
@@ -282,4 +303,25 @@ export function EscrowDetail({ id }: { id: string }) {
       </div>
     </>
   );
+}
+
+/** A transaction hash, linked to Etherscan so a reader can check it. */
+function TxLink({ hash }: { hash?: string }) {
+  if (!hash) return <span className="mono">—</span>;
+  return (
+    <a
+      className="mono"
+      href={`https://sepolia.etherscan.io/tx/${hash}`}
+      target="_blank"
+      rel="noreferrer"
+    >
+      {shortHash(hash)}
+    </a>
+  );
+}
+
+/** Hashes are 66 characters; the ends are what a reader compares. */
+function shortHash(hash?: string) {
+  if (!hash) return '—';
+  return hash.length > 18 ? `${hash.slice(0, 10)}…${hash.slice(-6)}` : hash;
 }

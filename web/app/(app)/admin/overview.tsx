@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import {
-  Activity, Boxes, Cpu, Fuel, Gauge, KeyRound, Layers, Link2, Lock, Monitor,
+  Activity, Boxes, Cpu, Fuel, Gauge, KeyRound, Link2, Lock, Monitor,
   RotateCcw, ScrollText, ShieldAlert, Users,
 } from 'lucide-react';
 import {
@@ -40,7 +40,7 @@ const LAYERS = [
   {
     icon: <Boxes size={15} />,
     name: 'Blockchain layer',
-    tech: 'Solidity 0.8.19 · Ethereum Sepolia',
+    tech: 'Solidity 0.8.20 · Ethereum Sepolia',
     role: 'EscrowContract and RiskOracleContract hold funds and enforce rules.',
     tone: 'chain' as const,
   },
@@ -49,7 +49,7 @@ const LAYERS = [
 const ROLES: Role[] = ['buyer', 'seller', 'arbitrator', 'admin'];
 
 export function SystemOverview() {
-  const { transactions, disputes, audit, settings, contracts, backendConnected, resetDemo } = useStore();
+  const { transactions, disputes, audit, settings, contracts, resetDemo } = useStore();
 
   const scored = transactions.length;
   const blockedShare = transactions.filter((t) => t.prediction.riskScore > settings.riskThreshold).length
@@ -89,15 +89,6 @@ export function SystemOverview() {
             foot={`${disputes.length} raised in total`} />
         </StatGrid>
 
-        {!backendConnected && (
-          <Notice tone="warn" title="No downstream layers are connected" icon={<Layers size={15} />}>
-            The figures above are computed from local demonstration data. They describe how the
-            interface behaves, not how the deployed system performs. Set{' '}
-            <code className="mono">NEXT_PUBLIC_API_URL</code> to route scoring through the FastAPI
-            service, at which point every reading here becomes a live measurement.
-          </Notice>
-        )}
-
         <div className={ui.split}>
           <Card title="Architecture" subtitle="One vocabulary throughout: four layers, three technical modules.">
             <div className={ui.stackSm}>
@@ -135,7 +126,7 @@ export function SystemOverview() {
               ]} />
             </Card>
 
-            <Card title="Reported gas costs" subtitle="Table 4.2 means. Descriptive estimates, not measurements.">
+            <Card title="Measured gas costs" subtitle="Per-operation medians from Sepolia. claimRefund is from the local harness — it sits behind a seven-day hold.">
               <div className={ui.stackSm}>
                 {Object.entries(REPORTED_GAS).map(([fn, units]) => (
                   <div key={fn} className={a.gasRow}>

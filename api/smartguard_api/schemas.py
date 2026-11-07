@@ -123,6 +123,28 @@ class PartyOut(BaseModel):
     walletAddress: str = Field(validation_alias="wallet_address")
 
 
+class EscrowEventOut(BaseModel):
+    """One audit entry, for the escrow's own event trail.
+
+    Returned with the escrow rather than from the admin audit endpoint,
+    because a buyer is entitled to the history of their own escrow and is not
+    entitled to everyone else's. Scoping it to the record keeps the two
+    separate.
+    """
+
+    model_config = ORM_OUT
+
+    id: str
+    layer: AuditLayer
+    eventType: str = Field(validation_alias="event_type")
+    summary: str
+    actorAddress: str | None = Field(default=None, validation_alias="actor_address")
+    txHash: str | None = Field(default=None, validation_alias="tx_hash")
+    gasUsed: int | None = Field(default=None, validation_alias="gas_used")
+    blockNumber: int | None = Field(default=None, validation_alias="block_number")
+    createdAt: datetime = Field(validation_alias="created_at")
+
+
 class EscrowOut(BaseModel):
     model_config = ORM_OUT
 
@@ -153,6 +175,11 @@ class EscrowOut(BaseModel):
     settlementTxHash: str | None = Field(default=None, validation_alias="settlement_tx_hash")
     chainBlock: int | None = Field(default=None, validation_alias="chain_block")
     chainError: str | None = Field(default=None, validation_alias="chain_error")
+
+    # The escrow's own history, across all four layers. Populated on the
+    # single-escrow read; left empty on the list, where it would multiply the
+    # payload for rows nobody has opened.
+    events: list[EscrowEventOut] = []
 
     # What this principal may do next. Computed per request, so the interface
     # never has to reimplement the policy to decide which controls to render.

@@ -26,6 +26,8 @@ export interface StoreState {
   nextBlock: number;
   /** False until browser storage has been consulted. */
   hydrated: boolean;
+  /** True once the API has answered and its rows replaced the local ones. */
+  apiConnected: boolean;
 }
 
 const SEED_STATE: StoreState = {
@@ -36,6 +38,7 @@ const SEED_STATE: StoreState = {
   nextOnChainId: 43,
   nextBlock: 7_414_900,
   hydrated: false,
+  apiConnected: false,
 };
 
 const STORAGE_KEY = 'smartguard.state.v3';
@@ -94,7 +97,15 @@ function hydrate() {
 
 /* ----------------------------------------------------------- API mode -- */
 
-/** True once the backend has answered and its rows are what the store holds. */
+/**
+ * True once the backend has answered and its rows are what the store holds.
+ *
+ * This, and not `NEXT_PUBLIC_API_URL`, is what "connected" means. That
+ * variable is deliberately empty — it is the client-side switch for the local
+ * scoring stand-in — while the real connection runs server-side through
+ * API_URL and the route handlers. Asking the env var would report the backend
+ * absent while it is serving the page.
+ */
 let apiMode = false;
 
 export const isApiMode = () => apiMode;
@@ -112,12 +123,45 @@ export async function adoptApi(): Promise<boolean> {
     setState({
       transactions: rows.map(api.toTransaction),
       disputes: api.toDisputes(rows),
+      apiConnected: true,
     });
     return true;
   } catch {
     // A backend that errors is not a reason to discard what is on screen.
     return false;
   }
+}
+
+/**
+ * Loads one escrow's event trail and merges it into the audit list.
+ *
+ * Merged rather than replacing, because the list endpoint supplies no events
+ * and the store holds trails for whichever escrows have been opened. Entries
+ * are keyed by id so opening the same escrow twice does not duplicate them.
+ */
+export async function loadEvents(reference: string): Promise<void> {
+  // No apiMode gate. The detail page's effect fires before adoptApi() has
+  // finished, and gating here meant the trail was fetched once, too early,
+  // and never again. fetchEscrow already returns null without a backend.
+  const row = await api.fetchEscrow(reference);
+  if (!row?.events?.length) return;
+
+  const incoming: AuditEntry[] = row.events.map((event) => ({
+    id: event.id,
+    transactionId: reference,
+    layer: event.layer as AuditEntry['layer'],
+    eventType: event.eventType,
+    actorAddress: event.actorAddress ?? undefined,
+    summary: event.summary,
+    txHash: event.txHash ?? undefined,
+    gasUsed: event.gasUsed ?? undefined,
+    blockNumber: event.blockNumber ?? undefined,
+    createdAt: event.createdAt,
+  }));
+
+  const known = new Set(state.audit.map((entry) => entry.id));
+  const added = incoming.filter((entry) => !known.has(entry.id));
+  if (added.length) setState({ audit: [...state.audit, ...added] });
 }
 
 /**

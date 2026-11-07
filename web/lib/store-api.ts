@@ -62,6 +62,19 @@ export interface ApiEscrow {
   chainBlock?: number | null;
   chainError?: string | null;
   permittedActions?: string[];
+  events?: ApiEvent[];
+}
+
+interface ApiEvent {
+  id: string;
+  layer: string;
+  eventType: string;
+  summary: string;
+  actorAddress: string | null;
+  txHash: string | null;
+  gasUsed: number | null;
+  blockNumber: number | null;
+  createdAt: string;
 }
 
 /**
@@ -100,6 +113,11 @@ export function toTransaction(row: ApiEscrow): Transaction {
     completedAt: row.completedAt ?? undefined,
     holdingPeriodEndsAt: row.holdingPeriodEndsAt,
     prediction,
+    chainStatus: row.chainStatus as never,
+    escrowIdHash: row.escrowId?.startsWith('0x') ? row.escrowId : undefined,
+    scoreTxHash: row.scoreTxHash ?? undefined,
+    depositTxHash: row.depositTxHash ?? undefined,
+    settlementTxHash: row.settlementTxHash ?? undefined,
   };
 }
 
@@ -187,6 +205,24 @@ export class ApiRequestError extends Error {
 export async function fetchEscrows(): Promise<ApiEscrow[] | null> {
   try {
     return await request<ApiEscrow[]>('/api/escrows');
+  } catch (error) {
+    if (error instanceof ApiRequestError && (error.status === 401 || error.status === 503)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+/**
+ * One escrow, including its event trail.
+ *
+ * The list endpoint omits events deliberately — returning the history of
+ * every row would multiply a payload almost none of which is ever opened — so
+ * the detail view asks for them when it needs them.
+ */
+export async function fetchEscrow(reference: string): Promise<ApiEscrow | null> {
+  try {
+    return await request<ApiEscrow>(`/api/escrows/${encodeURIComponent(reference)}`);
   } catch (error) {
     if (error instanceof ApiRequestError && (error.status === 401 || error.status === 503)) {
       return null;

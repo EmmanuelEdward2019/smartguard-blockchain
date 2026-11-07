@@ -25,10 +25,18 @@ export const MODEL_VERSION = 'rf-paysim-v1.0.0';
 /** Deployed contract addresses. Placeholders until a real Sepolia deployment
  *  replaces them — Appendix A is explicit that the real identifiers must be
  *  copied from genuine deployment records before any verification claim. */
+/**
+ * The deployed contracts, from docs/evidence/deployment.sepolia.json.
+ *
+ * Real addresses, not generated ones: both are verified on Sepolia Etherscan,
+ * so anything the interface shows here can be checked against the chain. They
+ * were placeholders while nothing was deployed; keeping them after a
+ * deployment would mean the interface disagreed with the evidence record.
+ */
 export const CONTRACTS = {
-  escrow: fakeAddress('EscrowContract'),
-  riskOracle: fakeAddress('RiskOracleContract'),
-  oracleOperator: fakeAddress('OracleOperator'),
+  escrow: '0x02f7AF12B2Bcf967E9439acea560B60491B57CCD',
+  riskOracle: '0x7E7Dc2C906ab520097c57B747f0d5b406E6a9aEe',
+  oracleOperator: '0x58227C0252DeD8cC66Ff7a7B678992C50DEbd954',
   network: 'Ethereum Sepolia',
   chainId: 11155111,
 } as const;

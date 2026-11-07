@@ -30,13 +30,14 @@ from ..models import (
     AuditLayer, Dispute, EscrowState, FraudPrediction, Outcome, Role, Transaction, User,
 )
 from ..schemas import (
+    EscrowEventOut,
     CreateEscrowRequest, DisputeOut, EscrowOut, RaiseDisputeRequest, ResolveDisputeRequest,
 )
 from ..security import CurrentUser, require
 from ..settings_store import current as current_settings
 from .. import audit, chain_tasks, policy
 from ..chain import get_chain
-from ..models import ChainStatus
+from ..models import AuditLog, ChainStatus
 
 router = APIRouter(prefix="/escrows", tags=["escrows"])
 
@@ -348,7 +349,16 @@ def get_escrow(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> EscrowOut:
     config = current_settings(db, settings)
-    return _serialise(_load(reference, user, db), user, config)
+    tx = _load(reference, user, db)
+    out = _serialise(tx, user, config)
+
+    # Only on the single read. On the list this would multiply the payload by
+    # the history of every row, almost all of which nobody opens.
+    entries = db.query(AuditLog).filter(
+        AuditLog.transaction_id == tx.id,
+    ).order_by(AuditLog.created_at).all()
+    out.events = [EscrowEventOut.model_validate(entry) for entry in entries]
+    return out
 
 
 # ---------------------------------------------------------------- FR-03 ----

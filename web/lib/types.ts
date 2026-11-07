@@ -191,6 +191,20 @@ export interface Transaction {
   /** Deadline for claimRefund (FR-06). */
   holdingPeriodEndsAt: string;
   prediction: FraudPrediction;
+
+  /**
+   * What the chain holds for this escrow, when the API supplied it.
+   *
+   * Absent on locally generated records, which is the distinction the
+   * interface needs: a record with `confirmed` carries real transaction
+   * hashes, one without carries none and must not be presented as though it
+   * did.
+   */
+  chainStatus?: 'disabled' | 'pending' | 'confirmed' | 'failed';
+  escrowIdHash?: string;
+  scoreTxHash?: string;
+  depositTxHash?: string;
+  settlementTxHash?: string;
 }
 
 /** `Dispute` table — Section 3.9.2. */
@@ -264,13 +278,26 @@ export type ContractFunction =
  * descriptive estimates without retained execution receipts, so anywhere they
  * surface in the UI they must be marked as such — never as measurements.
  */
+/**
+ * Gas measured on Sepolia, from docs/evidence/sepolia-measurements.json.
+ *
+ * These replace the estimates the report's Table 4.2 carried. Two of the
+ * figures could not be taken live — releaseFunds and claimRefund sit behind a
+ * 48-hour and a seven-day time lock, and a public chain's clock cannot be
+ * advanced — so those come from the local harness and are marked as such.
+ *
+ * Do not average the two sources. The same bytecode is priced differently:
+ * Sepolia charges a large surcharge for storage that was previously zero, so
+ * operations that allocate state cost three to four times the local figure
+ * while those that only overwrite agree to within four per cent.
+ */
 export const REPORTED_GAS: Record<ContractFunction, number> = {
-  depositFunds:    187_432,
-  resolveDispute:   91_203,
-  initiateDispute:  74_556,
-  confirmDelivery:  68_210,
-  claimRefund:      63_870,
-  updateRiskScore:  47_215,
+  depositFunds:    595_275,
+  updateRiskScore: 365_109,
+  resolveDispute:   62_273,
+  confirmDelivery:  38_061,
+  initiateDispute:  37_802,
+  claimRefund:      44_801,   // local harness; behind the seven-day hold
 };
 
 /* ------------------------------------------------------- system settings -- */

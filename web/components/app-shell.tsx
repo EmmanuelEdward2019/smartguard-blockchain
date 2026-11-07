@@ -176,10 +176,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className={s.demoBar}>
             <FlaskConical size={13} />
             <span>
-              <span className={s.demoBarStrong}>Demonstration mode.</span>{' '}
-              The application/intelligence and blockchain layers are not connected. Risk scores come
-              from a deterministic local stand-in, and every hash, gas figure and contract address
-              shown is a placeholder — not a measurement.
+              <span className={s.demoBarStrong}>Offline mode.</span>{' '}
+              The API is not reachable, so figures on this page come from a local stand-in rather
+              than from the model and the contract.
             </span>
           </div>
         )}
