@@ -25,6 +25,18 @@ interface Claims extends Principal {
   iat: number;
   /** Expiry, seconds since epoch. */
   exp: number;
+  /**
+   * The bearer token the FastAPI service issued for this principal.
+   *
+   * Carried inside the session rather than handed to the browser: the API
+   * authenticates with a bearer token, the browser holds an HttpOnly cookie,
+   * and the route handlers in app/api bridge the two server-side. A token in
+   * JavaScript's reach would undo the reason the cookie is HttpOnly.
+   *
+   * Absent when the API is not configured, in which case the interface falls
+   * back to its local engine and says so.
+   */
+  apiToken?: string;
 }
 
 /* ----------------------------------------------------------------- key --- */
@@ -81,9 +93,15 @@ const encodeJson = (value: unknown) =>
 
 /* -------------------------------------------------------------- issue --- */
 
-export async function signSession(principal: Principal): Promise<string> {
+export async function signSession(
+  principal: Principal,
+  apiToken?: string,
+): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
-  const claims: Claims = { ...principal, iat: now, exp: now + SESSION_TTL_SECONDS };
+  const claims: Claims = {
+    ...principal, iat: now, exp: now + SESSION_TTL_SECONDS,
+    ...(apiToken ? { apiToken } : {}),
+  };
 
   const header = encodeJson({ alg: 'HS256', typ: 'JWT' });
   const payload = encodeJson(claims);
@@ -144,6 +162,28 @@ export async function verifySession(token: string | undefined): Promise<Principa
     role: claims.role,
     displayName: claims.displayName,
   };
+}
+
+/**
+ * The API bearer token out of a session cookie, for server-side forwarding.
+ *
+ * Deliberately separate from `verifySession`, which returns the public
+ * `Principal` and is called from the proxy and from server components. Only
+ * the route handlers that forward to FastAPI need the token, and keeping it
+ * off the principal means it cannot be serialised into a page by accident.
+ */
+export async function readApiToken(token: string | undefined): Promise<string | null> {
+  if (!token) return null;
+  // Signature and expiry are checked here too; an unverified cookie must not
+  // yield a token to forward.
+  if (!(await verifySession(token))) return null;
+  try {
+    const payload = token.split('.')[1];
+    const claims = JSON.parse(new TextDecoder().decode(b64urlDecode(payload))) as Claims;
+    return claims.apiToken ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /** Cookie attributes used by both the login and logout handlers. */

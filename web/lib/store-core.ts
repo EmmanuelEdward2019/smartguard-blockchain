@@ -9,9 +9,8 @@
  */
 
 import { fakeTxHash, gasFor, type ScoringInput } from './engine';
-import {
-  CONTRACTS, MODEL_VERSION, SEED_AUDIT, SEED_DISPUTES, SEED_TRANSACTIONS, USER_BY_ID,
-} from './seed';
+import * as api from './store-api';
+import { CONTRACTS, MODEL_VERSION, SEED_AUDIT, SEED_DISPUTES, SEED_TRANSACTIONS, USER_BY_ID, registerParties } from './seed';
 import {
   DEFAULT_SETTINGS, REPORTED_GAS,
   type AuditEntry, type Dispute, type FraudPrediction, type SystemSettings, type Transaction,
@@ -85,6 +84,55 @@ function hydrate() {
 
   state = { ...(restored ?? SEED_STATE), hydrated: true };
   emit();
+
+  // Then ask the backend. The local state above is what first paint shows, so
+  // the interface is never blank while this is in flight; when the API answers
+  // its rows replace the local ones. A 401 or an unreachable service leaves
+  // the local engine in place rather than emptying the workspace.
+  void adoptApi();
+}
+
+/* ----------------------------------------------------------- API mode -- */
+
+/** True once the backend has answered and its rows are what the store holds. */
+let apiMode = false;
+
+export const isApiMode = () => apiMode;
+
+/** Replaces local rows with the API's. Safe to call repeatedly. */
+export async function adoptApi(): Promise<boolean> {
+  try {
+    const rows = await api.fetchEscrows();
+    if (rows === null) return false;
+
+    apiMode = true;
+    // Register the counterparties before the rows that reference them render,
+    // or every name resolves to an em dash.
+    registerParties(rows.flatMap((r) => [r.buyer, r.seller, r.arbitrator]));
+    setState({
+      transactions: rows.map(api.toTransaction),
+      disputes: api.toDisputes(rows),
+    });
+    return true;
+  } catch {
+    // A backend that errors is not a reason to discard what is on screen.
+    return false;
+  }
+}
+
+/**
+ * Runs a lifecycle action against the API and reloads.
+ *
+ * Reloading rather than patching locally is the point: the API writes the
+ * database, the chain task writes the contract, and the listener reconciles
+ * the two. Guessing the resulting state here would reintroduce exactly the
+ * speculative write the Transaction model warns against.
+ */
+async function viaApi(reference: string, action: string, body?: unknown): Promise<boolean> {
+  if (!apiMode) return false;
+  await api.postAction(reference, action, body);
+  await adoptApi();
+  return true;
 }
 
 export function subscribe(onChange: () => void): () => void {
@@ -168,7 +216,33 @@ export interface NewEscrowInput {
  * a caller must not reach here with a score above the threshold, because on
  * chain `depositFunds` would revert.
  */
-export function createEscrow(input: NewEscrowInput): Transaction {
+export async function createEscrow(input: NewEscrowInput): Promise<Transaction> {
+  if (apiMode) {
+    const rows = (await api.fetchEscrows()) ?? [];
+    const sellers = api.knownSellers(rows);
+    const sellerName = USER_BY_ID[input.sellerId]?.displayName;
+    const sellerId = api.resolveSellerId(input.sellerId, sellerName, sellers);
+    if (!sellerId) {
+      throw new Error('No seller account is available through the API.');
+    }
+
+    // The API scores the request itself; the local assessment in `input` is
+    // what the form displayed while the user was filling it in, and is not
+    // sent. One score, produced by the service that owns the model.
+    const created = await api.createEscrow({
+      sellerId,
+      amountEth: input.amountEth,
+      itemDescription: input.itemDescription,
+      scoring: { ...input.scoring, sellerId },
+    });
+    await adoptApi();
+    return api.toTransaction(created);
+  }
+
+  return createEscrowLocally(input);
+}
+
+function createEscrowLocally(input: NewEscrowInput): Transaction {
   const onChainId = state.nextOnChainId;
   const id = `ESC-${1042 + (onChainId - 42)}`;
   const block = state.nextBlock;
@@ -240,7 +314,9 @@ export function createEscrow(input: NewEscrowInput): Transaction {
 }
 
 /** FR-03. Starts the time lock; the seller cannot withdraw until it elapses. */
-export function confirmDelivery(txId: string) {
+export async function confirmDelivery(txId: string) {
+  if (await viaApi(txId, 'confirm-delivery')) return;
+
   const tx = state.transactions.find((t) => t.id === txId);
   if (!tx) return;
   const buyer = USER_BY_ID[tx.buyerId];
@@ -255,7 +331,9 @@ export function confirmDelivery(txId: string) {
 }
 
 /** Release once the time lock has elapsed without a dispute. */
-export function releaseAfterTimeLock(txId: string) {
+export async function releaseAfterTimeLock(txId: string) {
+  if (await viaApi(txId, 'withdraw')) return;
+
   const tx = state.transactions.find((t) => t.id === txId);
   if (!tx) return;
   const seller = USER_BY_ID[tx.sellerId];
@@ -270,9 +348,10 @@ export function releaseAfterTimeLock(txId: string) {
 }
 
 /** FR-04. Either party may raise a dispute; authority moves to the arbitrator. */
-export function initiateDispute(
+export async function initiateDispute(
   txId: string, raisedByRole: 'buyer' | 'seller', reason: string,
 ) {
+  if (await viaApi(txId, 'dispute', { reason })) return;
   const tx = state.transactions.find((t) => t.id === txId);
   if (!tx) return;
 
@@ -301,7 +380,9 @@ export function initiateDispute(
 }
 
 /** FR-05. `resolveDispute(bool)` — true releases to the seller, false refunds. */
-export function resolveDispute(txId: string, forSeller: boolean, note: string) {
+export async function resolveDispute(txId: string, forSeller: boolean, note: string) {
+  if (await viaApi(txId, 'resolve', { releaseToSeller: forSeller, note })) return;
+
   const tx = state.transactions.find((t) => t.id === txId);
   const dispute = state.disputes.find((d) => d.transactionId === txId);
   if (!tx || !dispute) return;
@@ -334,7 +415,9 @@ export function resolveDispute(txId: string, forSeller: boolean, note: string) {
 }
 
 /** FR-06. Buyer recovers funds after the holding period with no confirmation. */
-export function claimRefund(txId: string) {
+export async function claimRefund(txId: string) {
+  if (await viaApi(txId, 'refund')) return;
+
   const tx = state.transactions.find((t) => t.id === txId);
   if (!tx) return;
   const buyer = USER_BY_ID[tx.buyerId];

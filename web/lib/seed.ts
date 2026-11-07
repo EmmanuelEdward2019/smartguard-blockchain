@@ -46,6 +46,33 @@ export const USERS: User[] = [
 
 export const USER_BY_ID: Record<string, User> = Object.fromEntries(USERS.map((u) => [u.id, u]));
 
+/**
+ * Adds accounts the API reported to the directory components look names up in.
+ *
+ * The seeded accounts carry local ids like `u-seller`; the API identifies the
+ * same people by database UUID. Without this the escrow table renders every
+ * counterparty as an em dash, because the lookup misses.
+ *
+ * It mutates the exported record rather than replacing it, since the modules
+ * that read it hold the original reference.
+ */
+export function registerParties(
+  parties: { id: string; displayName: string; walletAddress: string }[],
+): void {
+  for (const party of parties) {
+    if (USER_BY_ID[party.id]) continue;
+    USER_BY_ID[party.id] = {
+      id: party.id,
+      walletAddress: party.walletAddress,
+      // The role is not carried on an escrow's party, and nothing reads it
+      // for a counterparty — only the name and the address are shown.
+      role: 'seller',
+      displayName: party.displayName,
+      createdAt: new Date(0).toISOString(),
+    } as User;
+  }
+}
+
 /** Behavioural history per seller, feeding the reputation-derived features. */
 export const SELLER_PROFILES: Record<string, { reputation: number; disputeRate: number; completed: number }> = {
   'u-seller':  { reputation: 0.974, disputeRate: 0.021, completed: 143 },

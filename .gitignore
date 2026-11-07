@@ -63,3 +63,6 @@ ml/data/raw/SAMPLE_paysim.csv
 # Locust per-run CSVs. Intermediate: load-test.json carries the parsed
 # statistics, and that is what the report cites.
 docs/evidence/load-test-raw/
+
+# A convenience archive of docs/evidence/screenshots, rebuilt on demand.
+docs/evidence/screenshots.zip
