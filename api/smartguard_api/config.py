@@ -53,11 +53,38 @@ class Settings(BaseSettings):
 
     fail_closed_on_inference_error: bool = True
 
-    # --- blockchain (Sprint 4) ------------------------------------------
+    # --- blockchain ------------------------------------------------------
+    # Off by default. The service must start, and its tests must run, on a
+    # machine with no RPC endpoint and no keys.
+    chain_enabled: bool = False
+
     sepolia_rpc_url: str = ""
     oracle_private_key: str = ""
+
+    # Left empty, addresses are read from docs/evidence/deployment.sepolia.json,
+    # which the deploy script writes and the report cites. One source of truth
+    # beats asking an operator to copy two addresses in correctly.
     escrow_contract_address: str = ""
     risk_oracle_contract_address: str = ""
+
+    # The demonstration custody account. depositFunds is payable and must be
+    # signed by whoever owns the money; this service signs for the buyer.
+    # That is a demonstration arrangement, not a custody model — see the note
+    # at the top of chain.py and Section 3.15.
+    chain_funder_private_key: str = ""
+
+    # What is actually sent on chain, regardless of the notional amount shown
+    # in the interface, so a demonstration does not drain the faucet.
+    chain_demo_amount_eth: float = 0.0002
+
+    # Sepolia inclusion takes about eleven seconds; this bounds the wait when
+    # the network is congested rather than hanging a worker indefinitely.
+    chain_tx_timeout_seconds: int = 180
+
+    # The event listener polls rather than subscribes, because the HTTP
+    # providers this project uses do not offer websockets on the free tier.
+    chain_poll_seconds: int = 15
+    chain_sync_enabled: bool = False
 
     # --- service --------------------------------------------------------
     cors_origins: str = "http://localhost:3000"

@@ -23,5 +23,12 @@ pandas==2.1.4
 joblib==1.3.2
 PyYAML==6.0.1
 
-# Web3.py for the oracle bridge (Sprint 4). Table 3.3 names 6.11.
+# Web3.py for the oracle bridge. Table 3.3 names 6.11.
 web3==6.11.3
+
+# web3 6.11 imports pkg_resources at module scope. setuptools removed
+# pkg_resources in 81.0, so a current setuptools makes `import web3` fail with
+# ModuleNotFoundError on a fresh environment. Pinning below the removal keeps
+# web3 at the version Table 3.3 specifies rather than moving the report's pin
+# to work around a packaging change.
+setuptools<81
