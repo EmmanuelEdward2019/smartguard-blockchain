@@ -1,4 +1,4 @@
-# SmartGuard
+# SmartGuard Blockchain
 
 **Blockchain-Enhanced AI-Powered Digital Escrow Transaction System for Fraud
 Detection and Risk Analysis**
